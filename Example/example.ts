@@ -223,7 +223,13 @@ const startSock = async() => {
 				if(connection === 'connecting' || qr) {
 					if(usePairingCode && !sock.authState.creds.registered) {
 						// Pairing Code Methode (E.164 Format ohne +)
-						const phoneNumber = await question('Telefonnummer eingeben (ohne +, z.B. 4917123456789):\n')
+						const phoneNumber = process.env.WHATSAPP_PHONE_NUMBER
+						if (!phoneNumber) {
+							console.error('❌ WHATSAPP_PHONE_NUMBER environment variable not set!')
+							console.error('Set it to your phone number without + (e.g. 4917123456789)')
+							process.exit(1)
+						}
+						console.log(`📱 Requesting pairing code for: ${phoneNumber}`)
 						const code = await sock.requestPairingCode(phoneNumber)
 						console.log(`📱 Pairing Code: ${code}`)
 						console.log('Gehe zu WhatsApp → Verknüpfte Geräte → Code eingeben')
