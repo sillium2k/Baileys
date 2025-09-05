@@ -10,6 +10,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY engine-requirements.js ./
 COPY yarn.lock* ./
+COPY tsconfig*.json ./
 
 # Install all dependencies (including dev for build)
 RUN npm ci
