@@ -94,27 +94,31 @@ const loadGroupsConfig = (): GroupConfig[] => {
 
 const MONITORED_GROUPS = loadGroupsConfig()
 
-// Health Check Server für Railway
-if (process.env.NODE_ENV === 'production') {
-  const healthServer = http.createServer((req, res) => {
-    if (req.url === '/health' || req.url === '/') {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ 
-        status: 'OK', 
-        timestamp: new Date().toISOString(),
-        groups: MONITORED_GROUPS.length,
-        environment: 'production'
-      }))
-    } else {
-      res.writeHead(404)
-      res.end('Not Found')
-    }
-  })
-  
-  const port = process.env.PORT || 3000
-  healthServer.listen(port, () => {
-    console.log(`🏥 Health check server running on port ${port}`)
-  })
+// Health Check Server Funktion (wird nach WhatsApp-Verbindung gestartet)
+const startHealthCheckServer = () => {
+  if (process.env.NODE_ENV === 'production') {
+    const healthServer = http.createServer((req, res) => {
+      if (req.url === '/health' || req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ 
+          status: 'OK', 
+          timestamp: new Date().toISOString(),
+          groups: MONITORED_GROUPS.length,
+          environment: 'production',
+          whatsapp: 'connected'
+        }))
+      } else {
+        res.writeHead(404)
+        res.end('Not Found')
+      }
+    })
+    
+    const port = process.env.PORT || 3000
+    healthServer.listen(port, () => {
+      console.log(`🟢 Health Check Server läuft auf Port ${port}`)
+      console.log(`📊 Überwache ${MONITORED_GROUPS.length} Gruppen`)
+    })
+  }
 }
 
 // Link-Extraktion Funktion
@@ -258,6 +262,9 @@ const startSock = async() => {
 				
 				if(connection === 'open') {
 					console.log('✅ WhatsApp erfolgreich verbunden!')
+					
+					// Health Check Server starten nach erfolgreicher Verbindung
+					startHealthCheckServer()
 					
 					// Nur überwachte Gruppen anzeigen
 					try {
