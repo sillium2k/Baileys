@@ -8,5 +8,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
+  "include": ["src/**/*.ts", "Example/**/*.ts"],
   "exclude": ["node_modules","src/__tests__"]
 }
