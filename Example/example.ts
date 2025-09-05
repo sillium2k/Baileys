@@ -8,7 +8,7 @@ import fs from 'fs'
 import P from 'pino'
 import QRCode from 'qrcode'
 import dotenv from 'dotenv'
-import http from 'http'
+// import http from 'http' // Removed - no health check server needed
 
 // Load environment variables
 dotenv.config()
@@ -94,32 +94,7 @@ const loadGroupsConfig = (): GroupConfig[] => {
 
 const MONITORED_GROUPS = loadGroupsConfig()
 
-// Health Check Server Funktion (wird nach WhatsApp-Verbindung gestartet)
-const startHealthCheckServer = () => {
-  if (process.env.NODE_ENV === 'production') {
-    const healthServer = http.createServer((req, res) => {
-      if (req.url === '/health' || req.url === '/') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ 
-          status: 'OK', 
-          timestamp: new Date().toISOString(),
-          groups: MONITORED_GROUPS.length,
-          environment: 'production',
-          whatsapp: 'connected'
-        }))
-      } else {
-        res.writeHead(404)
-        res.end('Not Found')
-      }
-    })
-    
-    const port = process.env.PORT || 3000
-    healthServer.listen(port, () => {
-      console.log(`🟢 Health Check Server läuft auf Port ${port}`)
-      console.log(`📊 Überwache ${MONITORED_GROUPS.length} Gruppen`)
-    })
-  }
-}
+// Kein Health Check Server - Railway bricht nach 7min ab wenn er nicht antwortet
 
 // Link-Extraktion Funktion
 const extractLinks = (text: string): string[] => {
@@ -267,9 +242,7 @@ const startSock = async() => {
 				
 				if(connection === 'open') {
 					console.log('✅ WhatsApp erfolgreich verbunden!')
-					
-					// Health Check Server starten nach erfolgreicher Verbindung
-					startHealthCheckServer()
+					console.log('🚀 Link-Monitoring ist aktiv!')
 					
 					// Nur überwachte Gruppen anzeigen
 					try {
