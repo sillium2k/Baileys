@@ -1,7 +1,7 @@
 import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
 import readline from 'readline'
-import makeWASocket, { AnyMessageContent, BinaryInfo, delay, DisconnectReason, downloadAndProcessHistorySyncNotification, encodeWAM, fetchLatestBaileysVersion, getAggregateVotesInPollMessage, getHistoryMsg, isJidNewsletter, jidDecode, makeCacheableSignalKeyStore, normalizeMessageContent, PatchedMessageWithRecipientJID, proto, useMultiFileAuthState, WAMessageContent, WAMessageKey } from '../src'
+import makeWASocket, { type AnyMessageContent, BinaryInfo, delay, DisconnectReason, downloadAndProcessHistorySyncNotification, encodeWAM, fetchLatestBaileysVersion, getAggregateVotesInPollMessage, getHistoryMsg, isJidNewsletter, jidDecode, makeCacheableSignalKeyStore, normalizeMessageContent, type PatchedMessageWithRecipientJID, proto, useMultiFileAuthState, type WAMessageContent, type WAMessageKey } from '../src'
 //import MAIN_LOGGER from '../src/Utils/logger'
 import open from 'open'
 import fs from 'fs'
@@ -68,7 +68,7 @@ const loadGroupsConfig = (): GroupConfig[] => {
     return activeGroups
     
   } catch (error) {
-    console.log('⚠️  Fehler beim Laden der groups-config.json:', error.message)
+    console.log('⚠️  Fehler beim Laden der groups-config.json:', error instanceof Error ? error.message : String(error))
     console.log('⚙️  Verwende Fallback-Konfiguration')
     
     // Fallback-Konfiguration
@@ -159,7 +159,7 @@ const findGroupConfig = (jid: string): GroupConfig | undefined => {
 
 // external map to store retry counts of messages when decryption/encryption fails
 // keep this out of the socket itself, so as to prevent a message decryption/encryption loop across socket restarts
-const msgRetryCounterCache = new NodeCache()
+const msgRetryCounterCache = new NodeCache() as any
 
 const onDemandMap = new Map<string, string>()
 
@@ -264,7 +264,7 @@ const startSock = async() => {
 								console.log(`✅ ${monitoredGroup.name}`)
 								console.log(`   👥 ${group.participants?.length || 0} Teilnehmer`)
 								console.log(`   🔗 Webhook: ${monitoredGroup.webhook}`)
-								console.log(`   📅 Erstellt: ${new Date(group.creation * 1000).toLocaleString()}`)
+								console.log(`   📅 Erstellt: ${group.creation ? new Date(group.creation * 1000).toLocaleString() : 'Unbekannt'}`)
 								if (monitoredGroup.description) {
 									console.log(`   📝 ${monitoredGroup.description}`)
 								}
@@ -375,7 +375,7 @@ const startSock = async() => {
                 console.log(`   💬 Text: "${text}"`)
                 
                 // Links aus ALLEN Nachrichten extrahieren (auch eigene)
-                const links = extractLinks(text)
+                const links = extractLinks(text || '')
                 console.log(`   🔍 Links gefunden: ${links.length}`)
                 
                 if (links.length > 0) {
@@ -388,8 +388,8 @@ const startSock = async() => {
                       link,
                       sender: msg.key.fromMe ? 'Eigener Account' : (msg.key.participant || 'Unbekannt'),
                       groupName: groupConfig.name,
-                      timestamp: msg.messageTimestamp || Date.now(),
-                      originalMessage: text,
+                      timestamp: typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : (msg.messageTimestamp?.toNumber() || Date.now()),
+                      originalMessage: text || '',
                       isOwnMessage: msg.key.fromMe || false
                     }
                     
@@ -419,7 +419,7 @@ const startSock = async() => {
               if (text === "!gruppeninfo" && isGroup) {
                 try {
                   const groupMeta = await sock.groupMetadata(msg.key.remoteJid!)
-                  const response = `📊 Gruppeninfo:\n🔹 Name: ${groupMeta.subject}\n👥 Teilnehmer: ${groupMeta.participants.length}\n📅 Erstellt: ${new Date(groupMeta.creation * 1000).toLocaleString()}`
+                  const response = `📊 Gruppeninfo:\n🔹 Name: ${groupMeta.subject}\n👥 Teilnehmer: ${groupMeta.participants.length}\n📅 Erstellt: ${groupMeta.creation ? new Date(groupMeta.creation * 1000).toLocaleString() : 'Unbekannt'}`
                   await sock.sendMessage(msg.key.remoteJid!, { text: response })
                 } catch (error) {
                   console.log('❌ Fehler beim Abrufen der Gruppeninfos:', error)
