@@ -34,6 +34,6 @@
     "allowJs": false,
     "checkJs": false,
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "Example/**/*.ts"],
   "exclude": ["node_modules"]
 }
