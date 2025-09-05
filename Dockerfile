@@ -39,6 +39,7 @@ WORKDIR /app
 # Copy built application and necessary files from builder stage
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/WAProto ./WAProto
+COPY --from=builder /app/WAProto ./lib/WAProto
 COPY --from=builder /app/groups-config*.json ./
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/engine-requirements.js ./
