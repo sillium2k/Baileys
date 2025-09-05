@@ -437,17 +437,12 @@ const startSock = async() => {
                 }
               }
 
-              if (!msg.key.fromMe && doReplies && !isJidNewsletter(msg.key?.remoteJid!)) {
-                console.log('replying to', msg.key.remoteJid)
-                await sock!.readMessages([msg.key])
-                
-                // Unterschiedliche Antworten für Gruppen vs. private Chats
-                const response = isGroup 
-                  ? { text: 'Hello Gruppe! 👥' }
-                  : { text: 'Hello privat! 👋' }
-                  
-                await sendMessageWTyping(response, msg.key.remoteJid!)
-              }
+              // Auto-Reply deaktiviert - Bot antwortet nicht mehr automatisch
+              // if (!msg.key.fromMe && doReplies && !isJidNewsletter(msg.key?.remoteJid!)) {
+              //   console.log('replying to', msg.key.remoteJid)
+              //   await sock!.readMessages([msg.key])
+              //   await sendMessageWTyping({ text: 'Hello!' }, msg.key.remoteJid!)
+              // }
             }
           }
         }

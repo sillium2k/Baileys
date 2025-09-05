@@ -28,7 +28,7 @@
     "changelog:preview": "conventional-changelog -p angular -u",
     "changelog:update": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0",
     "example": "tsx ./Example/example.ts",
-    "dev": "tsx ./Example/example.ts --do-reply",
+    "dev": "tsx ./Example/example.ts",
     "start": "node ./lib/Example/example.js",
     "start:prod": "NODE_ENV=production node ./lib/Example/example.js",
     "gen:protobuf": "sh WAProto/GenerateStatics.sh",
