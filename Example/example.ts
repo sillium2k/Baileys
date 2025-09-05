@@ -97,6 +97,7 @@ const MONITORED_GROUPS = loadGroupsConfig()
 // Health Check Server für Railway (startet sofort)
 let whatsappConnected = false
 let pairingCodeRequested = false
+let currentQrPath: string | null = null
 
 const healthServer = http.createServer((req, res) => {
   if (req.url === '/health' || req.url === '/') {
@@ -105,8 +106,12 @@ const healthServer = http.createServer((req, res) => {
       status: 'OK', 
       timestamp: new Date().toISOString(),
       whatsapp: whatsappConnected ? 'connected' : 'connecting',
-      groups: MONITORED_GROUPS.length
+      groups: MONITORED_GROUPS.length,
+      qrAvailable: !!currentQrPath
     }))
+  } else if (req.url === '/qr' && currentQrPath && fs.existsSync(currentQrPath)) {
+    res.writeHead(200, { 'Content-Type': 'image/png' })
+    fs.createReadStream(currentQrPath).pipe(res)
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' })
     res.end('Not Found')
@@ -227,7 +232,19 @@ const startSock = async() => {
 					// QR-Code Methode (Standard)
 					console.log('\n🔗 QR-Code zum Scannen:')
 					console.log('Öffne WhatsApp → Verknüpfte Geräte → Gerät verknüpfen')
+					
+					// QR als Terminal ausgeben
 					console.log(await QRCode.toString(qr, { type: 'terminal' }))
+					
+					// Zusätzlich als PNG-Datei speichern
+					const qrPath = process.env.NODE_ENV === 'production' ? '/tmp/qr.png' : './qr.png'
+					await QRCode.toFile(qrPath, qr)
+					currentQrPath = qrPath
+					console.log(`💾 QR-Code gespeichert als: ${qrPath}`)
+					console.log('📱 Scanne den QR-Code mit WhatsApp oder lade die Datei herunter')
+					if (process.env.NODE_ENV === 'production') {
+						console.log(`🌐 QR-Code auch verfügbar unter: https://deine-railway-url.up.railway.app/qr`)
+					}
 				}
 				
 				// Pairing Code nur EINMAL anfordern (nicht bei jedem QR Update)
