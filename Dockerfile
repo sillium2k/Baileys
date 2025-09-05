@@ -18,6 +18,9 @@ RUN npm ci
 # Copy all source code and config files
 COPY . .
 
+# Debug: Check what files are actually in the container
+RUN ls -la && echo "--- src/ directory ---" && ls -la src/ && echo "--- Example/ directory ---" && ls -la Example/ && echo "--- tsconfig files ---" && ls -la tsconfig*
+
 # Build the project
 RUN npm run build
 
