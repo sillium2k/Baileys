@@ -18,21 +18,15 @@ RUN npm ci
 # Copy all source code and config files
 COPY . .
 
-# Debug: Check what files are actually in the container
-RUN echo "=== DEBUG: Container contents ===" \
-    && ls -la \
-    && echo "=== src/ directory ===" \
-    && ls -la src/ || echo "src/ not found" \
-    && echo "=== Example/ directory ===" \
-    && ls -la Example/ || echo "Example/ not found" \
-    && echo "=== TypeScript files ===" \
-    && find . -name "*.ts" | head -10 || echo "No .ts files found" \
-    && echo "=== tsconfig files ===" \
-    && ls -la tsconfig* || echo "No tsconfig files found" \
-    && echo "=== END DEBUG ==="
-
 # Build the project
 RUN npm run build
+
+# Debug: Check what was built
+RUN echo "=== Built files ===" \
+    && ls -la lib/ \
+    && echo "=== WAProto files ===" \
+    && ls -la WAProto/ \
+    && echo "=== END DEBUG ==="
 
 # Production stage
 FROM node:20-alpine AS production
