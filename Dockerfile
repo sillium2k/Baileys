@@ -1,16 +1,21 @@
 # Build stage
 FROM node:20-alpine AS builder
 
-# Install dependencies for native modules
+# Install dependencies for native modules and build tools
 RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev
 
 WORKDIR /app
 
-# Copy all files
-COPY . .
+# Copy package files first for better caching
+COPY package*.json ./
+COPY engine-requirements.js ./
+COPY yarn.lock* ./
 
-# Install all dependencies 
+# Install all dependencies (including dev for build)
 RUN npm ci
+
+# Copy source code
+COPY . .
 
 # Build the project
 RUN npm run build
@@ -28,9 +33,9 @@ COPY package*.json ./
 COPY engine-requirements.js ./
 
 # Install only production dependencies
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
-# Copy built application from builder stage
+# Copy built application and necessary files from builder stage
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/WAProto ./WAProto
 COPY --from=builder /app/groups-config*.json ./
