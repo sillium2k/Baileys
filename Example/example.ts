@@ -224,8 +224,16 @@ const startSock = async() => {
 				const { connection, lastDisconnect, qr } = update
 				
 				// QR-Code oder Pairing Code handling (nach Baileys Docs)
-				if(connection === 'connecting' || qr) {
-					if(usePairingCode && !sock.authState.creds.registered) {
+				if(qr && !usePairingCode) {
+					// QR-Code Methode (Standard)
+					console.log('\n🔗 QR-Code zum Scannen:')
+					console.log('Öffne WhatsApp → Verknüpfte Geräte → Gerät verknüpfen')
+					console.log(await QRCode.toString(qr, { type: 'terminal' }))
+				}
+				
+				// Pairing Code nur bei erstem Connect ohne registrierte Credentials
+				if(usePairingCode && qr && !sock.authState.creds.registered) {
+					try {
 						// Pairing Code Methode (E.164 Format ohne +)
 						const phoneNumber = process.env.WHATSAPP_PHONE_NUMBER
 						if (!phoneNumber) {
@@ -237,11 +245,8 @@ const startSock = async() => {
 						const code = await sock.requestPairingCode(phoneNumber)
 						console.log(`📱 Pairing Code: ${code}`)
 						console.log('Gehe zu WhatsApp → Verknüpfte Geräte → Code eingeben')
-					} else if(qr) {
-						// QR-Code Methode (offizielle Baileys-Methode)
-						console.log('\n🔗 QR-Code zum Scannen:')
-						console.log('Öffne WhatsApp → Verknüpfte Geräte → Gerät verknüpfen')
-						console.log(await QRCode.toString(qr, { type: 'terminal' }))
+					} catch (error) {
+						console.error('❌ Fehler beim Anfordern des Pairing Codes:', error)
 					}
 				}
 				
