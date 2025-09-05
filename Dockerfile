@@ -28,17 +28,15 @@ RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY engine-requirements.js ./
-
-# Install only production dependencies
-RUN npm ci --omit=dev
-
 # Copy built application and necessary files from builder stage
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/WAProto ./WAProto
 COPY --from=builder /app/groups-config*.json ./
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/engine-requirements.js ./
+
+# Install only production dependencies (skip prepare script)
+RUN npm ci --omit=dev --ignore-scripts
 
 # Create directory for auth info
 RUN mkdir -p /app/data/baileys_auth_info
