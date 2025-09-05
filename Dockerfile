@@ -5,21 +5,20 @@ RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY yarn.lock* ./
-
-# Install dependencies
-RUN npm install --production
-
-# Copy source code
+# Copy all source code first (needed for preinstall script)
 COPY . .
+
+# Install all dependencies (including dev for build)
+RUN npm install
 
 # Build the project
 RUN npm run build
 
+# Remove dev dependencies after build
+RUN npm prune --omit=dev
+
 # Create directory for auth info
-RUN mkdir -p /app/baileys_auth_info
+RUN mkdir -p /app/data/baileys_auth_info
 
 # Expose port (Railway will provide PORT env var)
 EXPOSE $PORT
