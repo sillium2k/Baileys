@@ -1,0 +1,24 @@
+{
+  "monitoredGroups": [
+    {
+      "jid": "120363419791987486@g.us",
+      "name": "Social Media Multiplikator 2025",
+      "webhook": "https://hook.eu2.make.com/ah311m191quk34co4ivp8glazcl1reiq",
+      "enabled": true,
+      "description": "Social Media Links und Content - Production"
+    },
+    {
+      "jid": "120363173935785980@g.us", 
+      "name": "Erfolgstagebuch",
+      "webhook": "https://hook.eu2.make.com/ah311m191quk34co4ivp8glazcl1reiq",
+      "enabled": true,
+      "description": "Persönliche Erfolge und Fortschritte - Production"
+    }
+  ],
+  "settings": {
+    "defaultWebhook": "https://hook.eu2.make.com/ah311m191quk34co4ivp8glazcl1reiq",
+    "enableLogging": true,
+    "logLevel": "info",
+    "environment": "production"
+  }
+}

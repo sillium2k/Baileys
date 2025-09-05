@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+.env
+.nyc_output
+coverage
+.nyc_output
+.vscode
+lib
+baileys_auth_info/*
+!baileys_auth_info/.gitkeep
+wa-logs.txt
+*.test.js
+test-webhook.js
+webhook-server.js

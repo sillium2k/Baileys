@@ -6,12 +6,156 @@ import makeWASocket, { AnyMessageContent, BinaryInfo, delay, DisconnectReason, d
 import open from 'open'
 import fs from 'fs'
 import P from 'pino'
+import QRCode from 'qrcode'
+import dotenv from 'dotenv'
+import http from 'http'
+
+// Load environment variables
+dotenv.config()
+
+// Health Check Server für Railway (wird nach MONITORED_GROUPS geladen)
 
 const logger = P({ timestamp: () => `,"time":"${new Date().toJSON()}"` }, P.destination('./wa-logs.txt'))
 logger.level = 'trace'
 
 const doReplies = process.argv.includes('--do-reply')
 const usePairingCode = process.argv.includes('--use-pairing-code')
+
+// Multi-Gruppen Konfiguration aus JSON-Datei
+interface GroupConfig {
+  jid: string
+  name: string
+  webhook: string
+  enabled: boolean
+  description?: string
+}
+
+interface GroupsConfiguration {
+  monitoredGroups: GroupConfig[]
+  settings: {
+    defaultWebhook: string
+    enableLogging: boolean
+    logLevel: string
+  }
+}
+
+const loadGroupsConfig = (): GroupConfig[] => {
+  try {
+    // Wähle Konfigurationsdatei basierend auf Environment
+    const isProduction = process.env.NODE_ENV === 'production'
+    const configPath = isProduction ? './groups-config.prod.json' : './groups-config.json'
+    const configData = fs.readFileSync(configPath, 'utf-8')
+    const config: GroupsConfiguration = JSON.parse(configData)
+    
+    // Nur aktive Gruppen zurückgeben
+    const activeGroups = config.monitoredGroups.filter(group => group.enabled)
+    
+    console.log('🔧 Gruppen-Konfiguration geladen:')
+    console.log(`   📁 Datei: ${configPath}`)
+    console.log(`   📊 ${activeGroups.length} aktive Gruppen von ${config.monitoredGroups.length} insgesamt`)
+    console.log('')
+    
+    activeGroups.forEach(group => {
+      console.log(`   📋 ${group.name}`)
+      console.log(`      🆔 JID: ${group.jid}`)
+      console.log(`      🔗 Webhook: ${group.webhook}`)
+      if (group.description) {
+        console.log(`      📝 Info: ${group.description}`)
+      }
+      console.log('')
+    })
+    
+    return activeGroups
+    
+  } catch (error) {
+    console.log('⚠️  Fehler beim Laden der groups-config.json:', error.message)
+    console.log('⚙️  Verwende Fallback-Konfiguration')
+    
+    // Fallback-Konfiguration
+    const fallbackGroups: GroupConfig[] = [
+      {
+        jid: '120363419791987486@g.us',
+        name: 'Social Media Multiplikator 2025',
+        webhook: 'https://hook.eu2.make.com/ah311m191quk34co4ivp8glazcl1reiq',
+        enabled: true
+      },
+      {
+        jid: '120363173935785980@g.us', 
+        name: 'Erfolgstagebuch',
+        webhook: 'https://hook.eu2.make.com/ah311m191quk34co4ivp8glazcl1reiq',
+        enabled: true
+      }
+    ]
+    
+    console.log(`🔧 ${fallbackGroups.length} Fallback-Gruppen aktiviert`)
+    return fallbackGroups
+  }
+}
+
+const MONITORED_GROUPS = loadGroupsConfig()
+
+// Health Check Server für Railway
+if (process.env.NODE_ENV === 'production') {
+  const healthServer = http.createServer((req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        groups: MONITORED_GROUPS.length,
+        environment: 'production'
+      }))
+    } else {
+      res.writeHead(404)
+      res.end('Not Found')
+    }
+  })
+  
+  const port = process.env.PORT || 3000
+  healthServer.listen(port, () => {
+    console.log(`🏥 Health check server running on port ${port}`)
+  })
+}
+
+// Link-Extraktion Funktion
+const extractLinks = (text: string): string[] => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g
+  const matches = text.match(urlRegex)
+  return matches || []
+}
+
+// Webhook-Funktion mit dynamischer URL
+const sendToWebhook = async (webhookUrl: string, linkData: { 
+  link: string, 
+  sender: string, 
+  groupName: string, 
+  timestamp: number,
+  originalMessage: string,
+  isOwnMessage?: boolean
+}) => {
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(linkData)
+    })
+    
+    if (response.ok) {
+      console.log(`✅ Link erfolgreich an Webhook gesendet (${linkData.groupName}):`, linkData.link)
+    } else {
+      console.log(`❌ Webhook-Fehler für ${linkData.groupName}:`, response.status, response.statusText)
+    }
+  } catch (error) {
+    console.log(`❌ Fehler beim Senden an Webhook für ${linkData.groupName}:`, error)
+  }
+}
+
+// Hilfsfunktion: Gruppe finden
+const findGroupConfig = (jid: string): GroupConfig | undefined => {
+  return MONITORED_GROUPS.find(group => group.jid === jid)
+}
 
 // external map to store retry counts of messages when decryption/encryption fails
 // keep this out of the socket itself, so as to prevent a message decryption/encryption loop across socket restarts
@@ -25,7 +169,9 @@ const question = (text: string) => new Promise<string>((resolve) => rl.question(
 
 // start a connection
 const startSock = async() => {
-	const { state, saveCreds } = await useMultiFileAuthState('baileys_auth_info')
+	// Verwende Railway Volume oder Pairing Code für Production
+	const authPath = process.env.NODE_ENV === 'production' ? '/app/data/baileys_auth_info' : 'baileys_auth_info'
+	const { state, saveCreds } = await useMultiFileAuthState(authPath)
 	// fetch latest version of WA Web
 	const { version, isLatest } = await fetchLatestBaileysVersion()
 	console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
@@ -40,6 +186,7 @@ const startSock = async() => {
 		},
 		msgRetryCounterCache,
 		generateHighQualityLinkPreview: true,
+		syncFullHistory: true, // Get full chat history
 		// ignore all broadcast messages -- to receive the same
 		// comment the line below out
 		// shouldIgnoreJid: jid => isJidBroadcast(jid),
@@ -47,13 +194,7 @@ const startSock = async() => {
 		getMessage
 	})
 
-	// Pairing code for Web clients
-	if (usePairingCode && !sock.authState.creds.registered) {
-		// todo move to QR event
-		const phoneNumber = await question('Please enter your phone number:\n')
-		const code = await sock.requestPairingCode(phoneNumber)
-		console.log(`Pairing code: ${code}`)
-	}
+	// Pairing code handling wird im connection.update Event gemacht (siehe unten)
 
 	const sendMessageWTyping = async(msg: AnyMessageContent, jid: string) => {
 		await sock.presenceSubscribe(jid)
@@ -76,13 +217,67 @@ const startSock = async() => {
 			// maybe it closed, or we received all offline message or connection opened
 			if(events['connection.update']) {
 				const update = events['connection.update']
-				const { connection, lastDisconnect } = update
+				const { connection, lastDisconnect, qr } = update
+				
+				// QR-Code oder Pairing Code handling (nach Baileys Docs)
+				if(connection === 'connecting' || qr) {
+					if(usePairingCode && !sock.authState.creds.registered) {
+						// Pairing Code Methode (E.164 Format ohne +)
+						const phoneNumber = await question('Telefonnummer eingeben (ohne +, z.B. 4917123456789):\n')
+						const code = await sock.requestPairingCode(phoneNumber)
+						console.log(`📱 Pairing Code: ${code}`)
+						console.log('Gehe zu WhatsApp → Verknüpfte Geräte → Code eingeben')
+					} else if(qr) {
+						// QR-Code Methode (offizielle Baileys-Methode)
+						console.log('\n🔗 QR-Code zum Scannen:')
+						console.log('Öffne WhatsApp → Verknüpfte Geräte → Gerät verknüpfen')
+						console.log(await QRCode.toString(qr, { type: 'terminal' }))
+					}
+				}
+				
 				if(connection === 'close') {
-					// reconnect if not logged out
-					if((lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut) {
+					const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode
+					
+					// Handle restartRequired (nach dem QR-Scan normal)
+					if(statusCode === DisconnectReason.restartRequired) {
+						console.log('🔄 Restart erforderlich nach QR-Scan (normal)')
+						startSock()
+					} else if(statusCode !== DisconnectReason.loggedOut) {
+						console.log('🔄 Reconnecting...', DisconnectReason[statusCode || 0])
 						startSock()
 					} else {
-						console.log('Connection closed. You are logged out.')
+						console.log('❌ Verbindung geschlossen. Du wurdest ausgeloggt.')
+					}
+				}
+				
+				if(connection === 'open') {
+					console.log('✅ WhatsApp erfolgreich verbunden!')
+					
+					// Nur überwachte Gruppen anzeigen
+					try {
+						const allGroups = await sock.groupFetchAllParticipating()
+						console.log('\n📱 Überwachte Gruppen Status:')
+						
+						for (const monitoredGroup of MONITORED_GROUPS) {
+							const group = allGroups[monitoredGroup.jid]
+							if (group) {
+								console.log(`✅ ${monitoredGroup.name}`)
+								console.log(`   👥 ${group.participants?.length || 0} Teilnehmer`)
+								console.log(`   🔗 Webhook: ${monitoredGroup.webhook}`)
+								console.log(`   📅 Erstellt: ${new Date(group.creation * 1000).toLocaleString()}`)
+								if (monitoredGroup.description) {
+									console.log(`   📝 ${monitoredGroup.description}`)
+								}
+								console.log('')
+							} else {
+								console.log(`❌ ${monitoredGroup.name}`)
+								console.log(`   ⚠️  Gruppe nicht gefunden oder nicht Mitglied`)
+								console.log(`   🆔 JID: ${monitoredGroup.jid}`)
+								console.log('')
+							}
+						}
+					} catch (error) {
+						console.log('❌ Fehler beim Abrufen der Gruppen-Status:', error)
 					}
 				}
 
@@ -161,6 +356,54 @@ const startSock = async() => {
           for (const msg of upsert.messages) {
             if (msg.message?.conversation || msg.message?.extendedTextMessage?.text) {
               const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text
+              const isGroup = msg.key.remoteJid?.endsWith('@g.us')
+              const groupConfig = isGroup ? findGroupConfig(msg.key.remoteJid!) : undefined
+              
+              // Gruppe oder private Nachricht identifizieren
+              if (isGroup) {
+                const groupName = groupConfig?.name || 'Unbekannte Gruppe'
+                console.log(`👥 Gruppennachricht von ${msg.key.participant} in "${groupName}": "${text}"`)
+              } else {
+                console.log(`💬 Private Nachricht: "${text}"`)
+              }
+
+              // 🔗 LINK MONITORING für überwachte Gruppen
+              if (groupConfig) {
+                console.log(`🐛 DEBUG: Nachricht in überwachter Gruppe "${groupConfig.name}":`)
+                console.log(`   📨 Von mir: ${msg.key.fromMe}`)
+                console.log(`   👤 Sender: ${msg.key.participant || msg.key.remoteJid || 'Unbekannt'}`)
+                console.log(`   💬 Text: "${text}"`)
+                
+                // Links aus ALLEN Nachrichten extrahieren (auch eigene)
+                const links = extractLinks(text)
+                console.log(`   🔍 Links gefunden: ${links.length}`)
+                
+                if (links.length > 0) {
+                  const senderType = msg.key.fromMe ? "Eigener" : "Fremder"
+                  console.log(`🔗 ${links.length} ${senderType} Link(s) gefunden in "${groupConfig.name}"!`)
+                  links.forEach(link => console.log(`   🌐 Link: ${link}`))
+                  
+                  for (const link of links) {
+                    const linkData = {
+                      link,
+                      sender: msg.key.fromMe ? 'Eigener Account' : (msg.key.participant || 'Unbekannt'),
+                      groupName: groupConfig.name,
+                      timestamp: msg.messageTimestamp || Date.now(),
+                      originalMessage: text,
+                      isOwnMessage: msg.key.fromMe || false
+                    }
+                    
+                    console.log(`📤 Sende ${senderType.toLowerCase()}en Link an Webhook: ${groupConfig.webhook}`)
+                    // Link an gruppenspezifischen Webhook senden
+                    await sendToWebhook(groupConfig.webhook, linkData)
+                  }
+                } else {
+                  console.log(`   ℹ️  Keine Links in dieser Nachricht`)
+                }
+              } else {
+                console.log(`🐛 DEBUG: Nachricht in nicht-überwachter Gruppe: ${msg.key.remoteJid}`)
+              }
+
               if (text == "requestPlaceholder" && !upsert.requestId) {
                 const messageId = await sock.requestPlaceholderResend(msg.key)
                 console.log('requested placeholder resync, id=', messageId)
@@ -172,11 +415,38 @@ const startSock = async() => {
                 console.log('requested on-demand sync, id=', messageId)
               }
 
-              if (!msg.key.fromMe && doReplies && !isJidNewsletter(msg.key?.remoteJid!)) {
+              // Gruppen-spezifische Befehle
+              if (text === "!gruppeninfo" && isGroup) {
+                try {
+                  const groupMeta = await sock.groupMetadata(msg.key.remoteJid!)
+                  const response = `📊 Gruppeninfo:\n🔹 Name: ${groupMeta.subject}\n👥 Teilnehmer: ${groupMeta.participants.length}\n📅 Erstellt: ${new Date(groupMeta.creation * 1000).toLocaleString()}`
+                  await sock.sendMessage(msg.key.remoteJid!, { text: response })
+                } catch (error) {
+                  console.log('❌ Fehler beim Abrufen der Gruppeninfos:', error)
+                }
+              }
 
+              // Debug-Befehl für Erfolgstagebuch Historie
+              if (text === "!debug" && groupConfig?.name === "Erfolgstagebuch") {
+                try {
+                  console.log('🔍 Lade letzte Nachrichten aus Erfolgstagebuch...')
+                  const messages = await sock.fetchMessageHistory(10, msg.key, msg.messageTimestamp!)
+                  console.log(`📜 Historie angefordert (ID: ${messages})`)
+                } catch (error) {
+                  console.log('❌ Fehler beim Abrufen der Historie:', error)
+                }
+              }
+
+              if (!msg.key.fromMe && doReplies && !isJidNewsletter(msg.key?.remoteJid!)) {
                 console.log('replying to', msg.key.remoteJid)
                 await sock!.readMessages([msg.key])
-                await sendMessageWTyping({ text: 'Hello there!' }, msg.key.remoteJid!)
+                
+                // Unterschiedliche Antworten für Gruppen vs. private Chats
+                const response = isGroup 
+                  ? { text: 'Hello Gruppe! 👥' }
+                  : { text: 'Hello privat! 👋' }
+                  
+                await sendMessageWTyping(response, msg.key.remoteJid!)
               }
             }
           }
