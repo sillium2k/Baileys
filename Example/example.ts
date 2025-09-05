@@ -96,6 +96,7 @@ const MONITORED_GROUPS = loadGroupsConfig()
 
 // Health Check Server für Railway (startet sofort)
 let whatsappConnected = false
+let pairingCodeRequested = false
 
 const healthServer = http.createServer((req, res) => {
   if (req.url === '/health' || req.url === '/') {
@@ -229,9 +230,11 @@ const startSock = async() => {
 					console.log(await QRCode.toString(qr, { type: 'terminal' }))
 				}
 				
-				// Pairing Code nur bei erstem Connect ohne registrierte Credentials
-				if(usePairingCode && qr && !sock.authState.creds.registered) {
+				// Pairing Code nur EINMAL anfordern (nicht bei jedem QR Update)
+				if(usePairingCode && qr && !sock.authState.creds.registered && !pairingCodeRequested) {
 					try {
+						pairingCodeRequested = true // Verhindert mehrfache Anforderung
+						
 						// Pairing Code Methode (E.164 Format ohne +)
 						const phoneNumber = process.env.WHATSAPP_PHONE_NUMBER
 						if (!phoneNumber) {
@@ -242,9 +245,12 @@ const startSock = async() => {
 						console.log(`📱 Requesting pairing code for: ${phoneNumber}`)
 						const code = await sock.requestPairingCode(phoneNumber)
 						console.log(`📱 Pairing Code: ${code}`)
-						console.log('Gehe zu WhatsApp → Verknüpfte Geräte → Code eingeben')
+						console.log('🕒 Code ist 60 Sekunden gültig')
+						console.log('📱 Gehe zu WhatsApp → Verknüpfte Geräte → Code eingeben')
+						console.log(`🔢 Code nochmal: ${code}`)
 					} catch (error) {
 						console.error('❌ Fehler beim Anfordern des Pairing Codes:', error)
+						pairingCodeRequested = false // Reset bei Fehler
 					}
 				}
 				
