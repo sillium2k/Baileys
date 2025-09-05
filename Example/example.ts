@@ -3,7 +3,7 @@ import NodeCache from '@cacheable/node-cache'
 import readline from 'readline'
 import makeWASocket, { type AnyMessageContent, BinaryInfo, delay, DisconnectReason, downloadAndProcessHistorySyncNotification, encodeWAM, fetchLatestBaileysVersion, getAggregateVotesInPollMessage, getHistoryMsg, isJidNewsletter, jidDecode, makeCacheableSignalKeyStore, normalizeMessageContent, type PatchedMessageWithRecipientJID, proto, useMultiFileAuthState, type WAMessageContent, type WAMessageKey } from '../src'
 //import MAIN_LOGGER from '../src/Utils/logger'
-import open from 'open'
+// import open from 'open' // Not needed in production
 import fs from 'fs'
 import P from 'pino'
 import QRCode from 'qrcode'
