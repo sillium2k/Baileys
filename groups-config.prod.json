@@ -13,6 +13,13 @@
       "webhook": "https://hook.eu2.make.com/ah311m191quk34co4ivp8glazcl1reiq",
       "enabled": true,
       "description": "Persönliche Erfolge und Fortschritte - Production"
+    },
+    {
+      "jid": "120363405797133038@g.us",
+      "name": "EUR LinkedIn Engagement Community",
+      "webhook": "https://hook.eu2.make.com/xmr8vrojfnkr4rh5a7yeq2bffvzkil80",
+      "enabled": true,
+      "description": "LinkedIn Engagement Gruppe Europa"
     }
   ],
   "settings": {
