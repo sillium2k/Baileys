@@ -404,16 +404,34 @@ const startSock = async() => {
 				
 				if(connection === 'close') {
 					const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode
-					
+
 					// Handle restartRequired (nach dem QR-Scan normal)
 					if(statusCode === DisconnectReason.restartRequired) {
 						console.log('🔄 Restart erforderlich nach QR-Scan (normal)')
 						startSock()
+					} else if(statusCode === DisconnectReason.loggedOut) {
+						console.log('❌ Verbindung geschlossen. Du wurdest ausgeloggt.')
+						console.log('🔄 Lösche alte Auth-Session und starte neu...')
+
+						// Lösche alte Auth-Daten
+						const authPath = process.env.NODE_ENV === 'production' ? '/app/data/baileys_auth_info' : 'baileys_auth_info'
+						try {
+							const fs = await import('fs')
+							const path = await import('path')
+							if (fs.existsSync(authPath)) {
+								fs.rmSync(authPath, { recursive: true, force: true })
+								console.log('✅ Alte Auth-Session gelöscht')
+							}
+						} catch (error) {
+							console.error('⚠️ Fehler beim Löschen der Auth-Session:', error)
+						}
+
+						// Restart mit neuer Session
+						console.log('🔄 Starte neu mit frischer Session...')
+						startSock()
 					} else if(statusCode !== DisconnectReason.loggedOut) {
 						console.log('🔄 Reconnecting...', DisconnectReason[statusCode || 0])
 						startSock()
-					} else {
-						console.log('❌ Verbindung geschlossen. Du wurdest ausgeloggt.')
 					}
 				}
 				
