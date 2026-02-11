@@ -47,6 +47,7 @@
     "async-mutex": "^0.5.0",
     "axios": "^1.6.0",
     "dotenv": "^17.2.2",
+    "express": "^5.2.1",
     "libsignal": "git+https://github.com/whiskeysockets/libsignal-node",
     "music-metadata": "^11.7.0",
     "pino": "^9.6",
@@ -57,6 +58,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.31.0",
+    "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^16.0.0",
     "@types/qrcode": "^1.5.5",

@@ -8,7 +8,7 @@ import fs from 'fs'
 import P from 'pino'
 import QRCode from 'qrcode'
 import dotenv from 'dotenv'
-import http from 'http'
+import express, { type Request, type Response } from 'express'
 
 // Load environment variables
 dotenv.config()
@@ -98,31 +98,162 @@ const MONITORED_GROUPS = loadGroupsConfig()
 let whatsappConnected = false
 let pairingCodeRequested = false
 let currentQrPath: string | null = null
+let sock: ReturnType<typeof makeWASocket> | null = null
+let allGroupsCache: { [key: string]: any } = {}
 
-const healthServer = http.createServer((req, res) => {
-  if (req.url === '/health' || req.url === '/') {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ 
-      status: 'OK', 
-      timestamp: new Date().toISOString(),
-      whatsapp: whatsappConnected ? 'connected' : 'connecting',
-      groups: MONITORED_GROUPS.length,
-      qrAvailable: !!currentQrPath
-    }))
-  } else if (req.url === '/qr' && currentQrPath && fs.existsSync(currentQrPath)) {
-    res.writeHead(200, { 'Content-Type': 'image/png' })
+// Express App Setup
+const app = express()
+app.use(express.json())
+
+// Middleware für API Token Authentifizierung
+const authenticateToken = (req: Request, res: Response, next: () => void) => {
+  const authHeader = req.headers.authorization
+  const token = authHeader && authHeader.split(' ')[1] // Bearer TOKEN
+
+  const expectedToken = process.env.WEBHOOK_API_TOKEN
+
+  if (!expectedToken) {
+    console.log('⚠️  WEBHOOK_API_TOKEN nicht gesetzt - API ist ungeschützt!')
+    return next() // Fahre ohne Auth fort wenn kein Token konfiguriert
+  }
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Missing Bearer token'
+    })
+  }
+
+  if (token !== expectedToken) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Invalid token'
+    })
+  }
+
+  next()
+}
+
+// Health Check Routes
+app.get(['/health', '/'], (req: Request, res: Response) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    whatsapp: whatsappConnected ? 'connected' : 'connecting',
+    groups: MONITORED_GROUPS.length,
+    qrAvailable: !!currentQrPath
+  })
+})
+
+app.get('/qr', (req: Request, res: Response) => {
+  if (currentQrPath && fs.existsSync(currentQrPath)) {
+    res.setHeader('Content-Type', 'image/png')
     fs.createReadStream(currentQrPath).pipe(res)
   } else {
-    res.writeHead(404, { 'Content-Type': 'text/plain' })
-    res.end('Not Found')
+    res.status(404).json({ success: false, error: 'QR code not available' })
   }
 })
 
-// Health Check Server sofort starten (nicht warten auf WhatsApp)
+// Webhook Route zum Senden von Nachrichten
+app.post('/send-message', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { groupJid, groupName, message, link } = req.body
+
+    // Validierung
+    if (!groupJid && !groupName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either groupJid or groupName is required'
+      })
+    }
+
+    if (!message && !link) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either message or link is required'
+      })
+    }
+
+    // Prüfe ob Socket verbunden ist
+    if (!sock || !whatsappConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Bot not connected to WhatsApp'
+      })
+    }
+
+    // Finde Gruppe
+    let targetJid: string | null = null
+    let targetGroupName: string | null = null
+
+    if (groupJid) {
+      // Direkte JID angegeben - prüfe ob Gruppe existiert
+      const group = allGroupsCache[groupJid]
+      if (group) {
+        targetJid = groupJid
+        targetGroupName = group.subject
+      }
+    }
+
+    if (!targetJid && groupName) {
+      // Suche nach Name
+      const groupEntry = Object.entries(allGroupsCache).find(([_, group]) =>
+        group.subject?.toLowerCase() === groupName.toLowerCase()
+      )
+      if (groupEntry) {
+        targetJid = groupEntry[0]
+        targetGroupName = groupEntry[1].subject
+      }
+    }
+
+    if (!targetJid) {
+      return res.status(404).json({
+        success: false,
+        error: `Group not found: ${groupJid || groupName}`,
+        hint: 'Make sure the bot is a member of this group'
+      })
+    }
+
+    // Erstelle Nachricht (mit Link wenn separat angegeben)
+    let finalMessage = message || ''
+    if (link && !finalMessage.includes(link)) {
+      finalMessage = finalMessage ? `${finalMessage}\n\n${link}` : link
+    }
+
+    // Sende Nachricht
+    const sentMessage = await sock.sendMessage(targetJid, { text: finalMessage })
+
+    console.log(`📤 Nachricht gesendet an ${targetGroupName}: ${finalMessage.substring(0, 50)}...`)
+
+    return res.status(200).json({
+      success: true,
+      messageId: sentMessage?.key?.id,
+      groupJid: targetJid,
+      groupName: targetGroupName,
+      timestamp: Date.now()
+    })
+
+  } catch (error) {
+    console.error('❌ Fehler beim Senden der Nachricht:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error)
+    })
+  }
+})
+
+// Server starten
 const port = process.env.PORT || 3000
-healthServer.listen(port, () => {
-  console.log(`🟢 Health Check Server läuft auf Port ${port}`)
+app.listen(port, () => {
+  console.log(`🟢 Express Server läuft auf Port ${port}`)
   console.log(`📊 Bereit für Railway Health Check`)
+  console.log(`🔗 Webhook Endpunkt: POST /send-message`)
+  if (process.env.WEBHOOK_API_TOKEN) {
+    console.log(`🔒 API Token Authentifizierung: AKTIV`)
+  } else {
+    console.log(`⚠️  API Token Authentifizierung: INAKTIV (setze WEBHOOK_API_TOKEN in .env)`)
+  }
 })
 
 // Link-Extraktion Funktion
@@ -184,7 +315,7 @@ const startSock = async() => {
 	const { version, isLatest } = await fetchLatestBaileysVersion()
 	console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
 
-	const sock = makeWASocket({
+	sock = makeWASocket({
 		version,
 		logger,
 		auth: {
@@ -205,15 +336,15 @@ const startSock = async() => {
 	// Pairing code handling wird im connection.update Event gemacht (siehe unten)
 
 	const sendMessageWTyping = async(msg: AnyMessageContent, jid: string) => {
-		await sock.presenceSubscribe(jid)
+		await sock!.presenceSubscribe(jid)
 		await delay(500)
 
-		await sock.sendPresenceUpdate('composing', jid)
+		await sock!.sendPresenceUpdate('composing', jid)
 		await delay(2000)
 
-		await sock.sendPresenceUpdate('paused', jid)
+		await sock!.sendPresenceUpdate('paused', jid)
 
-		await sock.sendMessage(jid, msg)
+		await sock!.sendMessage(jid, msg)
 	}
 
 	// the process function lets you process all events that just occurred
@@ -248,7 +379,7 @@ const startSock = async() => {
 				}
 				
 				// Pairing Code nur EINMAL anfordern (nicht bei jedem QR Update)
-				if(usePairingCode && qr && !sock.authState.creds.registered && !pairingCodeRequested) {
+				if(usePairingCode && qr && !sock!.authState.creds.registered && !pairingCodeRequested) {
 					try {
 						pairingCodeRequested = true // Verhindert mehrfache Anforderung
 						
@@ -260,7 +391,7 @@ const startSock = async() => {
 							process.exit(1)
 						}
 						console.log(`📱 Requesting pairing code for: ${phoneNumber}`)
-						const code = await sock.requestPairingCode(phoneNumber)
+						const code = await sock!.requestPairingCode(phoneNumber)
 						console.log(`📱 Pairing Code: ${code}`)
 						console.log('🕒 Code ist 60 Sekunden gültig')
 						console.log('📱 Gehe zu WhatsApp → Verknüpfte Geräte → Code eingeben')
@@ -290,14 +421,15 @@ const startSock = async() => {
 					console.log('✅ WhatsApp erfolgreich verbunden!')
 					console.log('🚀 Link-Monitoring ist aktiv!')
 					whatsappConnected = true
-					
-					// Nur überwachte Gruppen anzeigen
+
+					// Alle Gruppen laden und cachen (für Webhook API)
 					try {
-						const allGroups = await sock.groupFetchAllParticipating()
+						allGroupsCache = await sock!.groupFetchAllParticipating()
+						console.log(`\n📋 ${Object.keys(allGroupsCache).length} Gruppen insgesamt verfügbar für Webhook API`)
 						console.log('\n📱 Überwachte Gruppen Status:')
-						
+
 						for (const monitoredGroup of MONITORED_GROUPS) {
-							const group = allGroups[monitoredGroup.jid]
+							const group = allGroupsCache[monitoredGroup.jid]
 							if (group) {
 								console.log(`✅ ${monitoredGroup.name}`)
 								console.log(`   👥 ${group.participants?.length || 0} Teilnehmer`)
@@ -345,7 +477,7 @@ const startSock = async() => {
 
 					const buffer = encodeWAM(binaryInfo);
 
-					const result = await sock.sendWAMBuffer(buffer)
+					const result = await sock!.sendWAMBuffer(buffer)
 					console.log(result)
 				}
 
@@ -443,22 +575,22 @@ const startSock = async() => {
               }
 
               if (text == "requestPlaceholder" && !upsert.requestId) {
-                const messageId = await sock.requestPlaceholderResend(msg.key)
+                const messageId = await sock!.requestPlaceholderResend(msg.key)
                 console.log('requested placeholder resync, id=', messageId)
               }
 
               // go to an old chat and send this
               if (text == "onDemandHistSync") {
-                const messageId = await sock.fetchMessageHistory(50, msg.key, msg.messageTimestamp!)
+                const messageId = await sock!.fetchMessageHistory(50, msg.key, msg.messageTimestamp!)
                 console.log('requested on-demand sync, id=', messageId)
               }
 
               // Gruppen-spezifische Befehle
               if (text === "!gruppeninfo" && isGroup) {
                 try {
-                  const groupMeta = await sock.groupMetadata(msg.key.remoteJid!)
+                  const groupMeta = await sock!.groupMetadata(msg.key.remoteJid!)
                   const response = `📊 Gruppeninfo:\n🔹 Name: ${groupMeta.subject}\n👥 Teilnehmer: ${groupMeta.participants.length}\n📅 Erstellt: ${groupMeta.creation ? new Date(groupMeta.creation * 1000).toLocaleString() : 'Unbekannt'}`
-                  await sock.sendMessage(msg.key.remoteJid!, { text: response })
+                  await sock!.sendMessage(msg.key.remoteJid!, { text: response })
                 } catch (error) {
                   console.log('❌ Fehler beim Abrufen der Gruppeninfos:', error)
                 }
@@ -468,7 +600,7 @@ const startSock = async() => {
               if (text === "!debug" && groupConfig?.name === "Erfolgstagebuch") {
                 try {
                   console.log('🔍 Lade letzte Nachrichten aus Erfolgstagebuch...')
-                  const messages = await sock.fetchMessageHistory(10, msg.key, msg.messageTimestamp!)
+                  const messages = await sock!.fetchMessageHistory(10, msg.key, msg.messageTimestamp!)
                   console.log(`📜 Historie angefordert (ID: ${messages})`)
                 } catch (error) {
                   console.log('❌ Fehler beim Abrufen der Historie:', error)
